@@ -1,0 +1,16 @@
+summary: Build ROCKs with Python 3.6 with bases bare and ubuntu:20.04
+environment:
+  BASE/base_2004: "ubuntu:20.04"
+  BASE/bare: "bare"
+execute: |
+  IMAGE="plugin-python-36:latest"
+  sed "s/placeholder-base/$BASE/" rockcraft.orig.yaml  > rockcraft.yaml
+
+  # Build the ROCK & load it into docker
+  run_rockcraft
+  ROCK=$(ls *.rock)
+  sudo /snap/rockcraft/current/bin/skopeo --insecure-policy copy oci-archive:${ROCK} docker-daemon:${IMAGE}
+  rm ${ROCK}
+
+  docker run --rm $IMAGE exec python3.6 --version | MATCH "Python 3.6"
+  docker run --rm $IMAGE exec black --help
