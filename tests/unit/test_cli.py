@@ -16,9 +16,8 @@
 
 import sys
 from argparse import Namespace
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
-import craft_cli
 import pytest
 import yaml
 from craft_cli import CraftError, ProvideHelpException, emit
@@ -172,23 +171,17 @@ def test_run_init_flask(mocker, lifecycle_init_mock, tmp_path, monkeypatch):
     mock_ended_ok = mocker.spy(emit, "ended_ok")
     mocker.patch.object(sys, "argv", ["rockcraft", "init", "--profile=flask"])
     cli.run()
-    assert mock_ended_ok.mock_calls == [call()]
-
-    mock_ended_ok = mocker.spy(emit, "ended_ok")
-    monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "0")
-    rock_project = project.Project.unmarshal(
-        extensions.apply_extensions(
-            tmp_path, yaml.safe_load(cli.commands.init.TEMPLATES["flask"])
-        )
-    )
-
-    assert len(rock_project.summary) < 80
-    assert len(rock_project.description.split()) < 100
-
+    rock_project = yaml.safe_load(cli.commands.init.TEMPLATES["flask"])
+    assert len(rock_project["summary"]) < 80
+    assert len(rock_project["description"].split()) < 100
     assert lifecycle_init_mock.mock_calls == [
         call(cli.commands.init.TEMPLATES["flask"])
     ]
     assert mock_ended_ok.mock_calls == [call()]
+
+    monkeypatch.setattr("craft_cli.emit", MagicMock())
+    monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "0")
+    project.Project.unmarshal(extensions.apply_extensions(tmp_path, rock_project))
 
 
 def test_run_arg_parse_error(capsys, mocker):
