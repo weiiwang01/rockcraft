@@ -152,17 +152,32 @@ def test_run_init(mocker, lifecycle_init_mock):
     cli.run()
 
     rock_project = project.Project.unmarshal(
-        yaml.safe_load(
-            # pylint: disable=W0212
-            cli.commands.InitCommand._INIT_TEMPLATE_YAML
-        )
+        yaml.safe_load(cli.commands.init.TEMPLATES[cli.commands.init.DEFAULT_PROFILE])
     )
 
     assert len(rock_project.summary) < 80
     assert len(rock_project.description.split()) < 100
 
     assert lifecycle_init_mock.mock_calls == [
-        call(cli.commands.InitCommand._INIT_TEMPLATE_YAML)  # pylint: disable=W0212
+        call(cli.commands.init.TEMPLATES[cli.commands.init.DEFAULT_PROFILE])
+    ]
+    assert mock_ended_ok.mock_calls == [call()]
+
+
+def test_run_init_flask(mocker, lifecycle_init_mock):
+    mock_ended_ok = mocker.spy(emit, "ended_ok")
+    mocker.patch.object(sys, "argv", ["rockcraft", "init", "--profile=flask"])
+    cli.run()
+
+    rock_project = project.Project.unmarshal(
+        yaml.safe_load(cli.commands.init.TEMPLATES["flask"])
+    )
+
+    assert len(rock_project.summary) < 80
+    assert len(rock_project.description.split()) < 100
+
+    assert lifecycle_init_mock.mock_calls == [
+        call(cli.commands.init.TEMPLATES["flask"])
     ]
     assert mock_ended_ok.mock_calls == [call()]
 

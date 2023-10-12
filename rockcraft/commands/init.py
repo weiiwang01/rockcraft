@@ -28,6 +28,52 @@ if TYPE_CHECKING:
     import argparse
 
 
+TEMPLATES = {
+    "simple": textwrap.dedent(
+        """\
+            name: my-rock-name # the name of your ROCK
+            base: ubuntu:22.04 # the base environment for this ROCK
+            version: '0.1' # just for humans. Semantic versioning is recommended
+            summary: Single-line elevator pitch for your amazing ROCK # 79 char long summary
+            description: |
+                This is my my-rock-name's description. You have a paragraph or two to tell the
+                most important story about it. Keep it under 100 words though,
+                we live in tweetspace and your description wants to look good in the
+                container registries out there.
+            license: GPL-3.0 # your application's SPDX license
+            platforms: # The platforms this ROCK should be built on and run on
+                amd64:
+
+            parts:
+                my-part:
+                    plugin: nil
+            """
+    ),
+    "flask": textwrap.dedent(
+        """\
+            name: my-flask-app # the name of your Flask application
+            base: ubuntu:22.04 # the base environment for this Flask application
+            version: '0.1' # just for humans. Semantic versioning is recommended
+            summary: A summary of your Flask application # 79 char long summary
+            description: |
+                This is my my-flask-app's description. You have a paragraph or two to tell the
+                most important story about it. Keep it under 100 words though,
+                we live in tweetspace and your description wants to look good in the
+                container registries out there.
+            license: GPL-3.0 # your application's SPDX license
+            platforms: # The platforms this ROCK should be built on and run on
+                amd64:
+
+            # To ensure the flask-framework extension works properly, your Flask application
+            # should have an `app.py` file with an `app` object as the WSGI entrypoint.
+            extensions:
+                - flask-framework
+            """
+    ),
+}
+DEFAULT_PROFILE = "simple"
+
+
 def init(rockcraft_yaml_content: str) -> None:
     """Initialize a rockcraft project.
 
@@ -60,28 +106,16 @@ class InitCommand(BaseCommand):
         """
     )
 
-    _INIT_TEMPLATE_YAML = textwrap.dedent(
-        """\
-            name: my-rock-name # the name of your ROCK
-            base: ubuntu:22.04 # the base environment for this ROCK
-            version: '0.1' # just for humans. Semantic versioning is recommended
-            summary: Single-line elevator pitch for your amazing ROCK # 79 char long summary
-            description: |
-                This is my my-rock-name's description. You have a paragraph or two to tell the
-                most important story about it. Keep it under 100 words though,
-                we live in tweetspace and your description wants to look good in the
-                container registries out there.
-            license: GPL-3.0 # your application's SPDX license
-            platforms: # The platforms this ROCK should be built on and run on
-                amd64:
-
-            parts:
-                my-part:
-                    plugin: nil
-            """
-    )
+    def fill_parser(self, parser):
+        """Specify command's specific parameters."""
+        parser.add_argument(
+            "--profile",
+            choices=list(TEMPLATES),
+            default=DEFAULT_PROFILE,
+            help=f"Use the specified project profile (defaults to '{DEFAULT_PROFILE}')",
+        )
 
     @overrides
     def run(self, parsed_args: "argparse.Namespace") -> None:
         """Run the command."""
-        init(self._INIT_TEMPLATE_YAML)
+        init(TEMPLATES[parsed_args.profile])
