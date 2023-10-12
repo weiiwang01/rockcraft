@@ -23,7 +23,7 @@ import yaml
 from craft_cli import CraftError, ProvideHelpException, emit
 from craft_providers import ProviderError
 
-from rockcraft import cli, project
+from rockcraft import cli, extensions, project
 from rockcraft.errors import RockcraftError
 
 
@@ -164,13 +164,18 @@ def test_run_init(mocker, lifecycle_init_mock):
     assert mock_ended_ok.mock_calls == [call()]
 
 
-def test_run_init_flask(mocker, lifecycle_init_mock):
+def test_run_init_flask(mocker, lifecycle_init_mock, tmp_path):
+    (tmp_path / "requirements.txt").write_text("flask")
+    (tmp_path / "app.py").write_text("app = object()")
+
     mock_ended_ok = mocker.spy(emit, "ended_ok")
     mocker.patch.object(sys, "argv", ["rockcraft", "init", "--profile=flask"])
     cli.run()
 
     rock_project = project.Project.unmarshal(
-        yaml.safe_load(cli.commands.init.TEMPLATES["flask"])
+        extensions.apply_extensions(
+            tmp_path, yaml.safe_load(cli.commands.init.TEMPLATES["flask"])
+        )
     )
 
     assert len(rock_project.summary) < 80
