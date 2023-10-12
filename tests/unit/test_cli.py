@@ -179,7 +179,7 @@ def test_run_init_flask(mocker, lifecycle_init_mock, tmp_path, monkeypatch):
     ]
     assert mock_ended_ok.mock_calls == [call()]
 
-    monkeypatch.setattr("craft_cli.emit", MagicMock())
+    emit.__init__()
     monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "0")
     project.Project.unmarshal(extensions.apply_extensions(tmp_path, rock_project))
 
