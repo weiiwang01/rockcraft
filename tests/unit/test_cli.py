@@ -168,7 +168,7 @@ def test_run_init_flask(mocker, lifecycle_init_mock, tmp_path, monkeypatch):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
 
-    mock_ended_ok = mocker.spy(emit, "ended_ok")
+    mock_ended_ok = mocker.patch.object(emit, "ended_ok")
     mocker.patch.object(sys, "argv", ["rockcraft", "init", "--profile=flask"])
     cli.run()
     rock_project = yaml.safe_load(cli.commands.init.TEMPLATES["flask"])
@@ -179,7 +179,6 @@ def test_run_init_flask(mocker, lifecycle_init_mock, tmp_path, monkeypatch):
     ]
     assert mock_ended_ok.mock_calls == [call()]
 
-    emit.__init__()
     monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "0")
     project.Project.unmarshal(extensions.apply_extensions(tmp_path, rock_project))
 
