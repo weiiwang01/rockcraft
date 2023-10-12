@@ -18,6 +18,7 @@ import sys
 from argparse import Namespace
 from unittest.mock import call, patch
 
+import craft_cli
 import pytest
 import yaml
 from craft_cli import CraftError, ProvideHelpException, emit
@@ -171,7 +172,9 @@ def test_run_init_flask(mocker, lifecycle_init_mock, tmp_path, monkeypatch):
     mock_ended_ok = mocker.spy(emit, "ended_ok")
     mocker.patch.object(sys, "argv", ["rockcraft", "init", "--profile=flask"])
     cli.run()
-    
+    assert mock_ended_ok.mock_calls == [call()]
+
+    mock_ended_ok = mocker.spy(emit, "ended_ok")
     monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "0")
     rock_project = project.Project.unmarshal(
         extensions.apply_extensions(
