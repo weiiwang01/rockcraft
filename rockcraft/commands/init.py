@@ -21,6 +21,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import jinja2
 from craft_application.commands import AppCommand
 from craft_cli import emit
 from overrides import overrides  # type: ignore[reportUnknownVariableType]
@@ -34,12 +35,12 @@ if TYPE_CHECKING:
 TEMPLATES = {
     "simple": textwrap.dedent(
         """\
-            name: {name}
-            base: ubuntu@22.04 # the base environment for this ROCK
+            name: {{ name }}
+            base: ubuntu:22.04 # the base environment for this ROCK
             version: '0.1' # just for humans. Semantic versioning is recommended
             summary: Single-line elevator pitch for your amazing ROCK # 79 char long summary
             description: |
-                This is {name}'s description. You have a paragraph or two to tell the
+                This is {{ name }}'s description. You have a paragraph or two to tell the
                 most important story about it. Keep it under 100 words though,
                 we live in tweetspace and your description wants to look good in the
                 container registries out there.
@@ -54,12 +55,12 @@ TEMPLATES = {
     ),
     "flask-framework": textwrap.dedent(
         """\
-            name: {name}
-            base: ubuntu@22.04 # the base environment for this Flask application
+            name: {{ name }}
+            base: ubuntu:22.04 # the base environment for this Flask application
             version: '0.1' # just for humans. Semantic versioning is recommended
             summary: A summary of your Flask application # 79 char long summary
             description: |
-                This is {name}'s description. You have a paragraph or two to tell the
+                This is {{ name }}'s description. You have a paragraph or two to tell the
                 most important story about it. Keep it under 100 words though,
                 we live in tweetspace and your description wants to look good in the
                 container registries out there.
@@ -92,6 +93,42 @@ TEMPLATES = {
             #       - flask/app/webapp
             #       - flask/app/templates
             #       - flask/app/static
+            """
+    ),
+    "django-framework": textwrap.dedent(
+        """\
+            name: {{ name }}
+            base: ubuntu:22.04 # the base environment for this Django application
+            version: '0.1' # just for humans. Semantic versioning is recommended
+            summary: A summary of your Django application # 79 char long summary
+            description: |
+                This is {{ name }}'s description. You have a paragraph or two to tell the
+                most important story about it. Keep it under 100 words though,
+                we live in tweetspace and your description wants to look good in the
+                container registries out there.
+            license: GPL-3.0 # your application's SPDX license
+            platforms: # The platforms this ROCK should be built on and run on
+                amd64:
+    
+            # To ensure the django-framework extension works properly, your Django application
+            # should have an `wsgi.py` file with an `application` object as the WSGI entrypoint.
+            extensions:
+                - django-framework
+            
+            parts:
+                django/install-app:
+                    prime:
+                        # Remove any files you would like to exclude from the ROCK image
+                        {%- for file in files %}
+                        - "django/app/{{ file }}"
+                        {%- endfor %}
+    
+            # Uncomment the sections you need and adjust according to your requirements.
+            # parts:
+            #   django/dependencies:
+            #     stage-packages:
+            #       # list required packages or slices for your flask application below.
+            #       - libpq-dev
             """
     ),
 }
@@ -157,9 +194,9 @@ class InitCommand(AppCommand):
             if not re.match(NAME_REGEX, name):
                 name = "my-rock-name"
             emit.debug(f"Set project name to '{name}'")
-
-        context = {
-            "name": name,
-        }
-
-        init(TEMPLATES[parsed_args.profile].format(**context))
+        cwd = pathlib.Path.cwd()
+        init(
+            jinja2.Template(TEMPLATES[parsed_args.profile]).render(
+                name=name, files=[str(f.relative_to(cwd)) for f in cwd.iterdir()]
+            )
+        )

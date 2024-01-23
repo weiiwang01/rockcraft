@@ -17,6 +17,7 @@
 """Extension processor and related utilities."""
 
 from ._utils import apply_extensions
+from .django_framework import DjangoFramework
 from .flask_framework import FlaskFramework
 from .registry import get_extension_class, get_extension_names, register, unregister
 
@@ -29,3 +30,4 @@ __all__ = [
 ]
 
 register("flask-framework", FlaskFramework)
+register("django-framework", DjangoFramework)
