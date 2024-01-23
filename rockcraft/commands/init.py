@@ -116,7 +116,7 @@ TEMPLATES = {
                 - django-framework
             
             parts:
-                django/install-app:
+                django-framework/install-app:
                     prime:
                         # Remove any files you would like to exclude from the ROCK image
                         {%- for file in files %}
@@ -125,7 +125,7 @@ TEMPLATES = {
     
             # Uncomment the sections you need and adjust according to your requirements.
             # parts:
-            #   django/dependencies:
+            #   django-framework/dependencies:
             #     stage-packages:
             #       # list required packages or slices for your flask application below.
             #       - libpq-dev
