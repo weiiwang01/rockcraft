@@ -79,7 +79,7 @@ class DjangoFramework(Extension):
             )
         if len(wsgi_files) >= 2:
             raise ExtensionError(
-                "cannot decide Django WSGI path, multiple wsgi.py file found in the project"
+                f"cannot decide Django WSGI path, multiple wsgi.py file {wsgi_files} found in the project"
             )
         wsgi_file = wsgi_files[0]
         wsgi_path = (

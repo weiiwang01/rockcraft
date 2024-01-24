@@ -124,10 +124,9 @@ TEMPLATES = {
                         {%- endfor %}
     
             # Uncomment the sections you need and adjust according to your requirements.
-            # parts:
             #   django-framework/dependencies:
             #     stage-packages:
-            #       # list required packages or slices for your flask application below.
+            #       # list required packages or slices for your Django application below.
             #       - libpq-dev
             """
     ),
