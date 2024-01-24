@@ -72,7 +72,21 @@ class DjangoFramework(Extension):
 
     def _get_wsgi_path(self) -> str:
         """Get the django application WSGI path."""
-        wsgi_files = list(self.project_root.glob("**/wsgi.py"))
+        install_app_part_name = "django-framework/install-app"
+        search = [
+            f[len("django/app/") :]
+            for f in self.yaml_data.get("parts", {})
+            .get(install_app_part_name, {})
+            .get("prime", [])
+        ]
+
+        wsgi_files = []
+        for search_file in search:
+            file = self.project_root / search_file
+            if file.is_file() and file.name == "wsgi.py":
+                wsgi_files.append(file)
+            if file.is_dir():
+                wsgi_files.extend(file.glob("**/wsgi.py"))
         if not wsgi_files:
             raise ExtensionError(
                 "cannot detect Django WSGI path, no wsgi.py file found in the project"
