@@ -14,24 +14,24 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""An experimental extension for the Flask framework."""
+"""An experimental extension for the Gunicorn based Python WSGI application extensions."""
+import abc
 import ast
-import copy
 import fnmatch
+import os.path
 import posixpath
 import re
 import textwrap
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from overrides import override
 
 from ..errors import ExtensionError
-from ._utils import _apply_extension_property
 from .extension import Extension
 
 
-class FlaskFramework(Extension):
-    """An extension for constructing Python applications based on the Flask framework."""
+class _GunicornBase(Extension):
+    """An extension base class for Python WSGI framework extensions."""
 
     @staticmethod
     @override
@@ -46,58 +46,42 @@ class FlaskFramework(Extension):
         return True
 
     @property
+    @abc.abstractmethod
     def wsgi_path(self) -> str:
-        return "app:app"
+        """Return the wsgi path of the wsgi application."""
 
     @property
+    @abc.abstractmethod
     def framework(self) -> str:
-        return "flask"
+        """Return the wsgi framework name, e.g. flask, django."""
 
-    def check_wsgi_path(self):
-        app_file = self.project_root / "app.py"
-        if not app_file.exists():
-            raise ExtensionError(
-                "flask application can not be imported from app:app, "
-                "no app.py file found in the project root"
-            )
-        tree = ast.parse(app_file.read_text(encoding="utf-8"))
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "app":
-                        return
-            if isinstance(node, ast.ImportFrom):
-                for name in node.names:
-                    if (name.asname is not None and name.asname == "app") or (
-                        name.asname is None and name.name == "app"
-                    ):
-                        return
-        raise ExtensionError(
-            "flask application can not be imported from app:app, "
-            "no variable named app in app.py"
-        )
+    @property
+    @abc.abstractmethod
+    def app_prime(self):
+        """Return the prime list for the wsgi application project."""
 
-    def check(self):
-        """Ensure the flask application can be run with the WSGI path app:app."""
-        if not (self.project_root / "requirements.txt").exists():
-            raise ExtensionError(
-                "missing requirements.txt file, "
-                "flask-framework extension requires this file with flask specified as a dependency"
-            )
-        if not self.yaml_data.get("services", {}).get("flask", {}).get("command"):
-            self.check_wsgi_path()
+    @abc.abstractmethod
+    def check_project(self):
+        """Ensure this extension can apply to the current rockcraft project."""
 
-    def gen_parts(self):
+    def _gen_parts(self):
+        """Generate the parts associated with this extension."""
         source_files = [f.name for f in sorted(self.project_root.iterdir())]
-        renaming_map = {
-            f: posixpath.join("flask/app", f)
-            for f in source_files
-            if not any(
-                fnmatch.fnmatch(f, p)
-                for p in ("node_modules", ".git", ".yarn", "*.rock")
-            )
-        }
-        renaming_map = {k: v for k, v in renaming_map.items() if v in self.app_prime}
+        # if prime is not in exclude mode, use it to generate the stage and organize
+        if self.app_prime and self.app_prime[0] and self.app_prime[0][0] != "-":
+            renaming_map = {
+                os.path.relpath(file, f"{self.framework}/app"): file
+                for file in self.app_prime
+            }
+        else:
+            renaming_map = {
+                f: posixpath.join(f"{self.framework}/app", f)
+                for f in source_files
+                if not any(
+                    fnmatch.fnmatch(f, p)
+                    for p in ("node_modules", ".git", ".yarn", "*.rock")
+                )
+            }
         parts: Dict[str, Any] = {
             f"{self.framework}-framework/dependencies": {
                 "plugin": "python",
@@ -148,15 +132,16 @@ class FlaskFramework(Extension):
 
     @override
     def get_root_snippet(self) -> Dict[str, Any]:
-        """Fill in some default root components for Flask.
+        """Fill in some default root components.
 
         Default values:
           - run_user: _daemon_
           - build-base: ubuntu:22.04 (only if user specify bare without a build-base)
           - platform: amd64
           - services: a service to run the Gunicorn server
+          - parts: see _GunicornBase._gen_parts
         """
-        self.check()
+        self.check_project()
         snippet: Dict[str, Any] = {
             "run_user": "_daemon_",
             "services": {
@@ -175,11 +160,39 @@ class FlaskFramework(Extension):
             snippet["build-base"] = "ubuntu@22.04"
         if "platforms" not in self.yaml_data:
             snippet["platforms"] = {"amd64": {}}
-        snippet["parts"] = self.gen_parts()
+        snippet["parts"] = self._gen_parts()
         return snippet
 
+    @override
+    def get_part_snippet(self) -> Dict[str, Any]:
+        """Return the part snippet to apply to existing parts."""
+        return {}
+
+    @override
+    def get_parts_snippet(self) -> Dict[str, Any]:
+        """Return the parts to add to parts."""
+        return {}
+
+
+class FlaskFramework(_GunicornBase):
+    """An extension for constructing Python applications based on the Flask framework."""
+
     @property
+    @override
+    def wsgi_path(self) -> str:
+        """Return the wsgi path of the wsgi application."""
+        return "app:app"
+
+    @property
+    @override
+    def framework(self) -> str:
+        """Return the wsgi framework name, e.g. flask, django."""
+        return "flask"
+
+    @property
+    @override
     def app_prime(self):
+        """Return the prime list for the Flask project."""
         user_prime = (
             self.yaml_data.get("parts", {})
             .get("flask-framework/install-app", {})
@@ -206,12 +219,38 @@ class FlaskFramework(Extension):
             ]
         return user_prime
 
-    @override
-    def get_part_snippet(self) -> Dict[str, Any]:
-        """Return the part snippet to apply to existing parts."""
-        return {}
+    def _check_wsgi_path(self):
+        """Ensure the extension can infer the WSGI path of the Flask application."""
+        app_file = self.project_root / "app.py"
+        if not app_file.exists():
+            raise ExtensionError(
+                "flask application can not be imported from app:app, "
+                "no app.py file found in the project root"
+            )
+        tree = ast.parse(app_file.read_text(encoding="utf-8"))
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "app":
+                        return
+            if isinstance(node, ast.ImportFrom):
+                for name in node.names:
+                    if (name.asname is not None and name.asname == "app") or (
+                        name.asname is None and name.name == "app"
+                    ):
+                        return
+        raise ExtensionError(
+            "flask application can not be imported from app:app, "
+            "no variable named app in app.py"
+        )
 
     @override
-    def get_parts_snippet(self) -> Dict[str, Any]:
-        """Return the parts to add to parts."""
-        return {}
+    def check_project(self):
+        """Ensure this extension can apply to the current rockcraft project."""
+        if not (self.project_root / "requirements.txt").exists():
+            raise ExtensionError(
+                "missing requirements.txt file, "
+                "flask-framework extension requires this file with flask specified as a dependency"
+            )
+        if not self.yaml_data.get("services", {}).get("flask", {}).get("command"):
+            self._check_wsgi_path()
