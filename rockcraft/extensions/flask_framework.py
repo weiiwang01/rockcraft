@@ -22,7 +22,7 @@ import os.path
 import posixpath
 import re
 import textwrap
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from overrides import override
 
@@ -57,7 +57,7 @@ class _GunicornBase(Extension):
 
     @property
     @abc.abstractmethod
-    def app_prime(self):
+    def app_prime(self) -> List[str]:
         """Return the prime list for the wsgi application project."""
 
     @abc.abstractmethod
@@ -198,7 +198,7 @@ class FlaskFramework(_GunicornBase):
             .get("flask-framework/install-app", {})
             .get("prime", [])
         )
-        if not all(re.match(f"-? *flask/app", p) for p in user_prime):
+        if not all(re.match("-? *flask/app", p) for p in user_prime):
             raise ExtensionError(
                 "flask-framework extension required prime entry in the "
                 "flask-framework/install-app part to start with flask/app"

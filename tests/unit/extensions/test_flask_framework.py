@@ -53,7 +53,7 @@ def test_flask_extension_default(tmp_path, input_yaml):
             "flask-framework/gunicorn-config": {
                 "plugin": "nil",
                 "override-build": textwrap.dedent(
-                    f"""\
+                    """\
                     #!/bin/bash
                     craftctl default
                     mkdir -p $CRAFT_PART_INSTALL/flask/
