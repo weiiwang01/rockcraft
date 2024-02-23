@@ -147,3 +147,8 @@ def prepend_to_env(
                   a separator token at the end.
     """
     return separator.join(paths) + f"${{{env_variable}:+{separator}${env_variable}}}"
+
+
+def get_extensions_data_dir() -> Path:
+    """Return the path to the extension data directory."""
+    return Path(sys.prefix) / "share" / "rockcraft" / "extensions"
