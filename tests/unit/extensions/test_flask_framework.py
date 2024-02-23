@@ -43,25 +43,20 @@ def test_flask_extension_default(tmp_path, input_yaml):
     assert applied == {
         "base": "ubuntu@22.04",
         "parts": {
+            "flask-framework/config-files": {
+                "organize": {
+                    "gunicorn.conf.py": "flask/gunicorn.conf.py",
+                    "statsd-mapping.conf": "statsd-mapping.conf",
+                },
+                "plugin": "dump",
+                "source": "/Users/weii-wang/PycharmProjects/rockcraft/venv/share/rockcraft/extensions/flask-framework",
+            },
             "flask-framework/dependencies": {
                 "plugin": "python",
                 "python-packages": ["gunicorn"],
                 "python-requirements": ["requirements.txt"],
                 "source": ".",
                 "stage-packages": ["python3-venv"],
-            },
-            "flask-framework/gunicorn-config": {
-                "plugin": "nil",
-                "override-build": textwrap.dedent(
-                    """\
-                    #!/bin/bash
-                    craftctl default
-                    mkdir -p $CRAFT_PART_INSTALL/flask/
-                    GUNICORN_CONFIG=$CRAFT_PART_INSTALL/flask/gunicorn.conf.py
-                    echo 'bind = ["0.0.0.0:8000"]' > $GUNICORN_CONFIG
-                    echo 'chdir = "/flask/app"' >> $GUNICORN_CONFIG
-                    """
-                ),
             },
             "flask-framework/install-app": {
                 "organize": {
@@ -78,16 +73,32 @@ def test_flask_extension_default(tmp_path, input_yaml):
                 "source": ".",
                 "stage-packages": ["ca-certificates_data"],
             },
+            "flask-framework/statsd-exporter": {
+                "build-snaps": ["go"],
+                "plugin": "go",
+                "source": "https://github.com/prometheus/statsd_exporter.git",
+                "source-tag": "v0.26.0",
+            },
         },
         "platforms": {"amd64": {}},
         "run_user": "_daemon_",
         "services": {
             "flask": {
-                "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py app:app",
+                "after": ["statsd-exporter"],
+                "command": "/bin/python3 -m gunicorn -c "
+                "/flask/gunicorn.conf.py app:app",
                 "override": "replace",
                 "startup": "enabled",
                 "user": "_daemon_",
-            }
+            },
+            "statsd-exporter": {
+                "command": "/bin/statsd_exporter "
+                "--statsd.mapping-config=/statsd-mapping.conf",
+                "override": "merge",
+                "startup": "enabled",
+                "summary": "statsd exporter service",
+                "user": "_daemon_",
+            },
         },
     }
 
@@ -173,6 +184,7 @@ def test_flask_framework_service_override(tmp_path, input_yaml):
 
     applied = extensions.apply_extensions(tmp_path, input_yaml)
     assert applied["services"]["flask"] == {
+        "after": ["statsd-exporter"],
         "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py webapp:app",
         "override": "replace",
         "startup": "enabled",
@@ -194,14 +206,20 @@ def test_flask_framework_add_service(tmp_path, input_yaml):
     applied = extensions.apply_extensions(tmp_path, input_yaml)
     assert applied["services"] == {
         "flask": {
-            "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py app:app",
+            "after": ["statsd-exporter"],
+            "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py " "app:app",
             "override": "replace",
             "startup": "enabled",
             "user": "_daemon_",
         },
-        "foobar": {
-            "command": "/bin/foobar",
-            "override": "replace",
+        "foobar": {"command": "/bin/foobar", "override": "replace"},
+        "statsd-exporter": {
+            "command": "/bin/statsd_exporter "
+            "--statsd.mapping-config=/statsd-mapping.conf",
+            "override": "merge",
+            "startup": "enabled",
+            "summary": "statsd exporter service",
+            "user": "_daemon_",
         },
     }
 

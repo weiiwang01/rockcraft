@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Tuple
 from overrides import override
 
 from ..errors import ExtensionError
-from .extension import Extension
+from .extension import Extension, get_extensions_data_dir
 
 
 class _GunicornBase(Extension):
@@ -82,6 +82,7 @@ class _GunicornBase(Extension):
                     for p in ("node_modules", ".git", ".yarn", "*.rock")
                 )
             }
+        data_dir = get_extensions_data_dir()
         parts: Dict[str, Any] = {
             f"{self.framework}-framework/dependencies": {
                 "plugin": "python",
@@ -97,18 +98,19 @@ class _GunicornBase(Extension):
                 "stage": list(renaming_map.values()),
                 "prime": self.app_prime,
             },
-            f"{self.framework}-framework/gunicorn-config": {
-                "plugin": "nil",
-                "override-build": textwrap.dedent(
-                    f"""\
-                    #!/bin/bash
-                    craftctl default
-                    mkdir -p $CRAFT_PART_INSTALL/{self.framework}/
-                    GUNICORN_CONFIG=$CRAFT_PART_INSTALL/{self.framework}/gunicorn.conf.py
-                    echo 'bind = ["0.0.0.0:8000"]' > $GUNICORN_CONFIG
-                    echo 'chdir = "/{self.framework}/app"' >> $GUNICORN_CONFIG
-                    """
-                ),
+            f"{self.framework}-framework/config-files": {
+                "plugin": "dump",
+                "source": str(data_dir / f"{self.framework}-framework"),
+                "organize": {
+                    "gunicorn.conf.py": f"{self.framework}/gunicorn.conf.py",
+                    "statsd-mapping.conf": "statsd-mapping.conf",
+                },
+            },
+            f"{self.framework}-framework/statsd-exporter": {
+                "build-snaps": ["go"],
+                "source-tag": "v0.26.0",
+                "plugin": "go",
+                "source": "https://github.com/prometheus/statsd_exporter.git",
             },
         }
         if self.yaml_data["base"] == "bare":
@@ -149,8 +151,16 @@ class _GunicornBase(Extension):
                     "override": "replace",
                     "startup": "enabled",
                     "command": f"/bin/python3 -m gunicorn -c /{self.framework}/gunicorn.conf.py {self.wsgi_path}",
+                    "after": ["statsd-exporter"],
                     "user": "_daemon_",
-                }
+                },
+                "statsd-exporter": {
+                    "override": "merge",
+                    "command": "/bin/statsd_exporter --statsd.mapping-config=/statsd-mapping.conf",
+                    "summary": "statsd exporter service",
+                    "startup": "enabled",
+                    "user": "_daemon_",
+                },
             },
         }
         if (
