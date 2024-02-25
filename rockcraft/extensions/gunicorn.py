@@ -19,10 +19,11 @@ import abc
 import ast
 import fnmatch
 import os.path
+import pathlib
 import posixpath
 import re
-import textwrap
-from typing import Any, Dict, List, Tuple
+
+from typing import Any, Dict, Tuple
 
 from overrides import override
 
@@ -55,33 +56,16 @@ class _GunicornBase(Extension):
     def framework(self) -> str:
         """Return the wsgi framework name, e.g. flask, django."""
 
-    @property
-    @abc.abstractmethod
-    def app_prime(self) -> List[str]:
-        """Return the prime list for the wsgi application project."""
-
     @abc.abstractmethod
     def check_project(self):
         """Ensure this extension can apply to the current rockcraft project."""
 
+    @abc.abstractmethod
+    def gen_install_app_part(self) -> Dict[str, Any]:
+        """Generate the content of *-framework/install-app part."""
+
     def _gen_parts(self):
         """Generate the parts associated with this extension."""
-        source_files = [f.name for f in sorted(self.project_root.iterdir())]
-        # if prime is not in exclude mode, use it to generate the stage and organize
-        if self.app_prime and self.app_prime[0] and self.app_prime[0][0] != "-":
-            renaming_map = {
-                os.path.relpath(file, f"{self.framework}/app"): file
-                for file in self.app_prime
-            }
-        else:
-            renaming_map = {
-                f: posixpath.join(f"{self.framework}/app", f)
-                for f in source_files
-                if not any(
-                    fnmatch.fnmatch(f, p)
-                    for p in ("node_modules", ".git", ".yarn", "*.rock")
-                )
-            }
         data_dir = get_extensions_data_dir()
         parts: Dict[str, Any] = {
             f"{self.framework}-framework/dependencies": {
@@ -91,19 +75,12 @@ class _GunicornBase(Extension):
                 "python-packages": ["gunicorn"],
                 "python-requirements": ["requirements.txt"],
             },
-            f"{self.framework}-framework/install-app": {
-                "plugin": "dump",
-                "source": ".",
-                "organize": renaming_map,
-                "stage": list(renaming_map.values()),
-                "prime": self.app_prime,
-            },
+            f"{self.framework}-framework/install-app": self.gen_install_app_part(),
             f"{self.framework}-framework/config-files": {
                 "plugin": "dump",
                 "source": str(data_dir / f"{self.framework}-framework"),
                 "organize": {
                     "gunicorn.conf.py": f"{self.framework}/gunicorn.conf.py",
-                    "statsd-mapping.conf": "statsd-mapping.conf",
                 },
             },
             f"{self.framework}-framework/statsd-exporter": {
@@ -114,9 +91,8 @@ class _GunicornBase(Extension):
             },
         }
         if self.yaml_data["base"] == "bare":
-            parts[f"{self.framework}-framework/misc"] = {
+            parts[f"{self.framework}-framework/runtime"] = {
                 "plugin": "nil",
-                "source": ".",
                 "override-build": "mkdir -m 777 ${CRAFT_PART_INSTALL}/tmp",
                 "stage-packages": [
                     "bash_bins",
@@ -125,9 +101,8 @@ class _GunicornBase(Extension):
                 ],
             }
         else:
-            parts[f"{self.framework}-framework/misc"] = {
+            parts[f"{self.framework}-framework/runtime"] = {
                 "plugin": "nil",
-                "source": ".",
                 "stage-packages": ["ca-certificates_data"],
             }
         return parts
@@ -156,7 +131,11 @@ class _GunicornBase(Extension):
                 },
                 "statsd-exporter": {
                     "override": "merge",
-                    "command": "/bin/statsd_exporter --statsd.mapping-config=/statsd-mapping.conf",
+                    "command": (
+                        "/bin/statsd_exporter --statsd.mapping-config=/statsd-mapping.conf "
+                        "--statsd.listen-udp=localhost:9125 "
+                        "--statsd.listen-tcp=localhost:9125"
+                    ),
                     "summary": "statsd exporter service",
                     "startup": "enabled",
                     "user": "_daemon_",
@@ -183,6 +162,23 @@ class _GunicornBase(Extension):
         """Return the parts to add to parts."""
         return {}
 
+    def has_global_variable(
+        self, source_file: pathlib.Path, variable_name: str
+    ) -> bool:
+        tree = ast.parse(source_file.read_text(encoding="utf-8"))
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == variable_name:
+                        return True
+            if isinstance(node, ast.ImportFrom):
+                for name in node.names:
+                    if (name.asname is not None and name.asname == variable_name) or (
+                        name.asname is None and name.name == variable_name
+                    ):
+                        return True
+        return False
+
 
 class FlaskFramework(_GunicornBase):
     """An extension for constructing Python applications based on the Flask framework."""
@@ -199,9 +195,35 @@ class FlaskFramework(_GunicornBase):
         """Return the wsgi framework name, e.g. flask, django."""
         return "flask"
 
-    @property
     @override
-    def app_prime(self):
+    def gen_install_app_part(self) -> Dict[str, Any]:
+        source_files = [f.name for f in sorted(self.project_root.iterdir())]
+        # if prime is not in exclude mode, use it to generate the stage and organize
+        if self._app_prime and self._app_prime[0] and self._app_prime[0][0] != "-":
+            renaming_map = {
+                os.path.relpath(file, f"{self.framework}/app"): file
+                for file in self._app_prime
+            }
+        else:
+            renaming_map = {
+                f: posixpath.join(f"{self.framework}/app", f)
+                for f in source_files
+                if not any(
+                    fnmatch.fnmatch(f, p)
+                    for p in ("node_modules", ".git", ".yarn", "*.rock")
+                )
+            }
+
+        return {
+            "plugin": "dump",
+            "source": ".",
+            "organize": renaming_map,
+            "stage": list(renaming_map.values()),
+            "prime": self._app_prime,
+        }
+
+    @property
+    def _app_prime(self):
         """Return the prime list for the Flask project."""
         user_prime = (
             self.yaml_data.get("parts", {})
@@ -237,22 +259,11 @@ class FlaskFramework(_GunicornBase):
                 "flask application can not be imported from app:app, "
                 "no app.py file found in the project root"
             )
-        tree = ast.parse(app_file.read_text(encoding="utf-8"))
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "app":
-                        return
-            if isinstance(node, ast.ImportFrom):
-                for name in node.names:
-                    if (name.asname is not None and name.asname == "app") or (
-                        name.asname is None and name.name == "app"
-                    ):
-                        return
-        raise ExtensionError(
-            "flask application can not be imported from app:app, "
-            "no variable named app in app.py"
-        )
+        if not self.has_global_variable(app_file, "app"):
+            raise ExtensionError(
+                "flask application can not be imported from app:app, "
+                "no variable named app in app.py"
+            )
 
     @override
     def check_project(self):
@@ -263,4 +274,65 @@ class FlaskFramework(_GunicornBase):
                 "flask-framework extension requires this file with flask specified as a dependency"
             )
         if not self.yaml_data.get("services", {}).get("flask", {}).get("command"):
+            self._check_wsgi_path()
+
+
+class DjangoFramework(_GunicornBase):
+    """An extension for constructing Python applications based on the Django framework."""
+
+    @property
+    def name(self):
+        """Return the normalized name of the rockcraft project."""
+        return self.yaml_data["name"].replace("-", "_").lower()
+
+    @property
+    def default_wsgi_path(self):
+        """Return the default wsgi path for the Django project."""
+        return f"{self.name}.wsgi:application"
+
+    @property
+    @override
+    def wsgi_path(self) -> str:
+        """Return the wsgi path of the wsgi application."""
+        return self.default_wsgi_path
+
+    @property
+    @override
+    def framework(self) -> str:
+        """Return the wsgi framework name, e.g. flask, django."""
+        return "django"
+
+    @override
+    def gen_install_app_part(self) -> Dict[str, Any]:
+        """Return the prime list for the Flask project."""
+        return {
+            "plugin": "dump",
+            "source": ".",
+            "organize": {self.name: "django/app"},
+            "stage": ["django/app"],
+            "prime": ["django/app"],
+        }
+
+    def _check_wsgi_path(self):
+        wsgi_file = self.project_root / self.name / self.name / "wsgi.py"
+        if not wsgi_file.exists():
+            raise ExtensionError(
+                f"django application can not be imported from {self.default_wsgi_path}, "
+                f"no wsgi.py file found in the project directory ({str(wsgi_file.parent)})."
+            )
+        if not self.has_global_variable(wsgi_file, "application"):
+            raise ExtensionError(
+                "django application can not be imported from {self.default_wsgi_path}, "
+                "no variable named application in application.py"
+            )
+
+    @override
+    def check_project(self):
+        """Ensure this extension can apply to the current rockcraft project."""
+        if not (self.project_root / "requirements.txt").exists():
+            raise ExtensionError(
+                "missing requirements.txt file, django-framework extension "
+                "requires this file with Django specified as a dependency"
+            )
+        if not self.yaml_data.get("services", {}).get("django", {}).get("command"):
             self._check_wsgi_path()

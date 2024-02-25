@@ -24,29 +24,43 @@ from rockcraft.errors import ExtensionError
 @pytest.fixture
 def flask_extension(mock_extensions, monkeypatch):
     monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "1")
-    extensions.register("flask-framework", extensions.flask_framework.FlaskFramework)
+    extensions.register("flask-framework", extensions.FlaskFramework)
 
 
-@pytest.fixture(name="input_yaml")
-def input_yaml_fixture():
+@pytest.fixture(name="flask_input_yaml")
+def flask_input_yaml_fixture():
     return {"base": "ubuntu@22.04", "extensions": ["flask-framework"]}
 
 
+@pytest.fixture
+def django_extension(mock_extensions, monkeypatch):
+    monkeypatch.setenv("ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS", "1")
+    extensions.register("django-framework", extensions.DjangoFramework)
+
+
+@pytest.fixture(name="django_input_yaml")
+def django_input_yaml_fixture():
+    return {
+        "name": "foo-bar",
+        "base": "ubuntu@22.04",
+        "extensions": ["django-framework"],
+    }
+
+
 @pytest.mark.usefixtures("flask_extension")
-def test_flask_extension_default(tmp_path, input_yaml):
+def test_flask_extension_default(tmp_path, flask_input_yaml):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
     (tmp_path / "static").mkdir()
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "test").write_text("test")
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert applied == {
         "base": "ubuntu@22.04",
         "parts": {
             "flask-framework/config-files": {
                 "organize": {
                     "gunicorn.conf.py": "flask/gunicorn.conf.py",
-                    "statsd-mapping.conf": "statsd-mapping.conf",
                 },
                 "plugin": "dump",
                 "source": "/Users/weii-wang/PycharmProjects/rockcraft/venv/share/rockcraft/extensions/flask-framework",
@@ -68,9 +82,8 @@ def test_flask_extension_default(tmp_path, input_yaml):
                 "source": ".",
                 "stage": ["flask/app/app.py", "flask/app/static"],
             },
-            "flask-framework/misc": {
+            "flask-framework/runtime": {
                 "plugin": "nil",
-                "source": ".",
                 "stage-packages": ["ca-certificates_data"],
             },
             "flask-framework/statsd-exporter": {
@@ -92,8 +105,11 @@ def test_flask_extension_default(tmp_path, input_yaml):
                 "user": "_daemon_",
             },
             "statsd-exporter": {
-                "command": "/bin/statsd_exporter "
-                "--statsd.mapping-config=/statsd-mapping.conf",
+                "command": (
+                    "/bin/statsd_exporter --statsd.mapping-config=/statsd-mapping.conf "
+                    "--statsd.listen-udp=localhost:9125 "
+                    "--statsd.listen-tcp=localhost:9125"
+                ),
                 "override": "merge",
                 "startup": "enabled",
                 "summary": "statsd exporter service",
@@ -104,13 +120,13 @@ def test_flask_extension_default(tmp_path, input_yaml):
 
 
 @pytest.mark.usefixtures("flask_extension")
-def test_flask_extension_prime_override(tmp_path, input_yaml):
+def test_flask_extension_prime_override(tmp_path, flask_input_yaml):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
     (tmp_path / "static").mkdir()
     (tmp_path / "node_modules").mkdir()
 
-    input_yaml["parts"] = {
+    flask_input_yaml["parts"] = {
         "flask-framework/install-app": {
             "prime": [
                 "flask/app/app.py",
@@ -119,7 +135,7 @@ def test_flask_extension_prime_override(tmp_path, input_yaml):
             ]
         }
     }
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
     install_app_part = applied["parts"]["flask-framework/install-app"]
     assert install_app_part["prime"] == [
         "flask/app/app.py",
@@ -139,21 +155,21 @@ def test_flask_extension_prime_override(tmp_path, input_yaml):
 
 
 @pytest.mark.usefixtures("flask_extension")
-def test_flask_framework_exclude_prime(tmp_path, input_yaml):
+def test_flask_framework_exclude_prime(tmp_path, flask_input_yaml):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
     (tmp_path / "static").mkdir()
     (tmp_path / "webapp").mkdir()
     (tmp_path / "test").mkdir()
     (tmp_path / "node_modules").mkdir()
-    input_yaml["parts"] = {
+    flask_input_yaml["parts"] = {
         "flask-framework/install-app": {
             "prime": [
                 "- flask/app/test",
             ]
         }
     }
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
     install_app_part = applied["parts"]["flask-framework/install-app"]
     assert install_app_part["prime"] == ["- flask/app/test"]
     assert install_app_part["organize"] == {
@@ -173,16 +189,16 @@ def test_flask_framework_exclude_prime(tmp_path, input_yaml):
 
 
 @pytest.mark.usefixtures("flask_extension")
-def test_flask_framework_service_override(tmp_path, input_yaml):
+def test_flask_framework_service_override(tmp_path, flask_input_yaml):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
-    input_yaml["services"] = {
+    flask_input_yaml["services"] = {
         "flask": {
             "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py webapp:app"
         }
     }
 
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert applied["services"]["flask"] == {
         "after": ["statsd-exporter"],
         "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py webapp:app",
@@ -193,17 +209,17 @@ def test_flask_framework_service_override(tmp_path, input_yaml):
 
 
 @pytest.mark.usefixtures("flask_extension")
-def test_flask_framework_add_service(tmp_path, input_yaml):
+def test_flask_framework_add_service(tmp_path, flask_input_yaml):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
-    input_yaml["services"] = {
+    flask_input_yaml["services"] = {
         "foobar": {
             "command": "/bin/foobar",
             "override": "replace",
         },
     }
 
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert applied["services"] == {
         "flask": {
             "after": ["statsd-exporter"],
@@ -214,8 +230,11 @@ def test_flask_framework_add_service(tmp_path, input_yaml):
         },
         "foobar": {"command": "/bin/foobar", "override": "replace"},
         "statsd-exporter": {
-            "command": "/bin/statsd_exporter "
-            "--statsd.mapping-config=/statsd-mapping.conf",
+            "command": (
+                "/bin/statsd_exporter --statsd.mapping-config=/statsd-mapping.conf "
+                "--statsd.listen-udp=localhost:9125 "
+                "--statsd.listen-tcp=localhost:9125"
+            ),
             "override": "merge",
             "startup": "enabled",
             "summary": "statsd exporter service",
@@ -225,20 +244,20 @@ def test_flask_framework_add_service(tmp_path, input_yaml):
 
 
 @pytest.mark.usefixtures("flask_extension")
-def test_flask_extension_override_parts(tmp_path, input_yaml):
+def test_flask_extension_override_parts(tmp_path, flask_input_yaml):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "foobar").touch()
     (tmp_path / "app.py").write_text("app = object()")
     (tmp_path / "static").mkdir()
     (tmp_path / "node_modules").mkdir()
 
-    input_yaml["parts"] = {
+    flask_input_yaml["parts"] = {
         "flask-framework/install-app": {"prime": ["-flask/app/foobar"]},
         "flask-framework/dependencies": {
             "python-requirements": ["requirements-jammy.txt"]
         },
     }
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
 
     assert applied["parts"]["flask-framework/install-app"]["prime"] == [
         "-flask/app/foobar"
@@ -257,15 +276,14 @@ def test_flask_extension_override_parts(tmp_path, input_yaml):
 def test_flask_extension_bare(tmp_path):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
-    input_yaml = {
+    flask_input_yaml = {
         "extensions": ["flask-framework"],
         "base": "bare",
         "parts": {"flask/install-app": {"prime": ["-flask/app/.git"]}},
     }
-    applied = extensions.apply_extensions(tmp_path, input_yaml)
-    assert applied["parts"]["flask-framework/misc"] == {
+    applied = extensions.apply_extensions(tmp_path, flask_input_yaml)
+    assert applied["parts"]["flask-framework/runtime"] == {
         "plugin": "nil",
-        "source": ".",
         "override-build": "mkdir -m 777 ${CRAFT_PART_INSTALL}/tmp",
         "stage-packages": ["bash_bins", "coreutils_bins", "ca-certificates_data"],
     }
@@ -275,9 +293,9 @@ def test_flask_extension_bare(tmp_path):
 @pytest.mark.usefixtures("flask_extension")
 def test_flask_extension_no_requirements_txt_error(tmp_path):
     (tmp_path / "app.py").write_text("app = object()")
-    input_yaml = {"extensions": ["flask-framework"], "base": "bare"}
+    flask_input_yaml = {"extensions": ["flask-framework"], "base": "bare"}
     with pytest.raises(ExtensionError) as exc:
-        extensions.apply_extensions(tmp_path, input_yaml)
+        extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert "requirements.txt" in str(exc)
 
 
@@ -285,7 +303,7 @@ def test_flask_extension_no_requirements_txt_error(tmp_path):
 def test_flask_extension_incorrect_prime_prefix_error(tmp_path):
     (tmp_path / "requirements.txt").write_text("flask")
     (tmp_path / "app.py").write_text("app = object()")
-    input_yaml = {
+    flask_input_yaml = {
         "extensions": ["flask-framework"],
         "base": "bare",
         "parts": {"flask-framework/install-app": {"prime": ["app.py"]}},
@@ -293,13 +311,13 @@ def test_flask_extension_incorrect_prime_prefix_error(tmp_path):
     (tmp_path / "requirements.txt").write_text("flask")
 
     with pytest.raises(ExtensionError) as exc:
-        extensions.apply_extensions(tmp_path, input_yaml)
+        extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert "flask/app" in str(exc)
 
 
 @pytest.mark.usefixtures("flask_extension")
 def test_flask_extension_incorrect_wsgi_path_error(tmp_path):
-    input_yaml = {
+    flask_input_yaml = {
         "extensions": ["flask-framework"],
         "base": "bare",
         "parts": {"flask/install-app": {"prime": ["flask/app/requirement.txt"]}},
@@ -307,13 +325,13 @@ def test_flask_extension_incorrect_wsgi_path_error(tmp_path):
     (tmp_path / "requirements.txt").write_text("flask")
 
     with pytest.raises(ExtensionError) as exc:
-        extensions.apply_extensions(tmp_path, input_yaml)
+        extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert "app:app" in str(exc)
 
     (tmp_path / "app.py").write_text("flask")
 
     with pytest.raises(ExtensionError) as exc:
-        extensions.apply_extensions(tmp_path, input_yaml)
+        extensions.apply_extensions(tmp_path, flask_input_yaml)
     assert "app:app" in str(exc)
 
 
@@ -321,12 +339,123 @@ def test_flask_extension_incorrect_wsgi_path_error(tmp_path):
 def test_flask_extension_flask_service_override_disable_wsgi_path_check(tmp_path):
     (tmp_path / "requirements.txt").write_text("flask")
 
-    input_yaml = {
+    flask_input_yaml = {
         "extensions": ["flask-framework"],
         "base": "bare",
         "services": {
             "flask": {
                 "command": "/bin/python3 -m gunicorn -c /flask/gunicorn.conf.py webapp:app"
+            }
+        },
+    }
+
+    extensions.apply_extensions(tmp_path, flask_input_yaml)
+
+
+@pytest.mark.usefixtures("django_extension")
+def test_django_extension_default(tmp_path, django_input_yaml):
+    (tmp_path / "requirements.txt").write_text("flask")
+    (tmp_path / "test").mkdir()
+    (tmp_path / "foo_bar" / "foo_bar").mkdir(parents=True)
+    (tmp_path / "foo_bar" / "foo_bar" / "wsgi.py").write_text("application = object()")
+
+    applied = extensions.apply_extensions(tmp_path, django_input_yaml)
+    assert applied == {
+        "base": "ubuntu@22.04",
+        "name": "foo-bar",
+        "parts": {
+            "django-framework/config-files": {
+                "organize": {"gunicorn.conf.py": "django/gunicorn.conf.py"},
+                "plugin": "dump",
+                "source": "/Users/weii-wang/PycharmProjects/rockcraft/venv/share/rockcraft/extensions/django-framework",
+            },
+            "django-framework/dependencies": {
+                "plugin": "python",
+                "python-packages": ["gunicorn"],
+                "python-requirements": ["requirements.txt"],
+                "source": ".",
+                "stage-packages": ["python3-venv"],
+            },
+            "django-framework/install-app": {
+                "organize": {"foo_bar": "django/app"},
+                "plugin": "dump",
+                "prime": ["django/app"],
+                "source": ".",
+                "stage": ["django/app"],
+            },
+            "django-framework/runtime": {
+                "plugin": "nil",
+                "stage-packages": ["ca-certificates_data"],
+            },
+            "django-framework/statsd-exporter": {
+                "build-snaps": ["go"],
+                "plugin": "go",
+                "source": "https://github.com/prometheus/statsd_exporter.git",
+                "source-tag": "v0.26.0",
+            },
+        },
+        "platforms": {"amd64": {}},
+        "run_user": "_daemon_",
+        "services": {
+            "django": {
+                "after": ["statsd-exporter"],
+                "command": "/bin/python3 -m gunicorn -c /django/gunicorn.conf.py foo_bar.wsgi:application",
+                "override": "replace",
+                "startup": "enabled",
+                "user": "_daemon_",
+            },
+            "statsd-exporter": {
+                "command": (
+                    "/bin/statsd_exporter --statsd.mapping-config=/statsd-mapping.conf "
+                    "--statsd.listen-udp=localhost:9125 "
+                    "--statsd.listen-tcp=localhost:9125"
+                ),
+                "override": "merge",
+                "startup": "enabled",
+                "summary": "statsd exporter service",
+                "user": "_daemon_",
+            },
+        },
+    }
+
+
+@pytest.mark.usefixtures("django_extension")
+def test_django_extension_incorrect_wsgi_path_error(tmp_path):
+    input_yaml = {
+        "name": "foobar",
+        "extensions": ["django-framework"],
+        "base": "bare",
+    }
+    (tmp_path / "requirements.txt").write_text("django")
+
+    with pytest.raises(ExtensionError) as exc:
+        extensions.apply_extensions(tmp_path, input_yaml)
+
+    assert "wsgi:application" in str(exc)
+
+    django_project_dir = tmp_path / "foobar" / "foobar"
+    django_project_dir.mkdir(parents=True)
+    (django_project_dir / "wsgi.py").write_text("app = object()")
+
+    with pytest.raises(ExtensionError):
+        extensions.apply_extensions(tmp_path, input_yaml)
+
+    (django_project_dir / "wsgi.py").write_text("application = object()")
+
+    extensions.apply_extensions(tmp_path, input_yaml)
+
+
+@pytest.mark.usefixtures("django_extension")
+def test_django_extension_django_service_override_disable_wsgi_path_check(tmp_path):
+    (tmp_path / "requirements.txt").write_text("flask")
+
+    input_yaml = {
+        "name": "foobar",
+        "extensions": ["django-framework"],
+        "base": "bare",
+        "services": {
+            "django": {
+                "command": "/bin/python3 -m gunicorn -c /django/gunicorn.conf.py webapp:app"
             }
         },
     }
