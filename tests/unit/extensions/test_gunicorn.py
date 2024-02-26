@@ -354,7 +354,7 @@ def test_flask_extension_flask_service_override_disable_wsgi_path_check(tmp_path
 
 @pytest.mark.usefixtures("django_extension")
 def test_django_extension_default(tmp_path, django_input_yaml):
-    (tmp_path / "requirements.txt").write_text("flask")
+    (tmp_path / "requirements.txt").write_text("django")
     (tmp_path / "test").mkdir()
     (tmp_path / "foo_bar" / "foo_bar").mkdir(parents=True)
     (tmp_path / "foo_bar" / "foo_bar" / "wsgi.py").write_text("application = object()")
