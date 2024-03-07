@@ -1,6 +1,6 @@
 # -*- Mode:Python; indent-tabs-mode:nil; tab-width:4 -*-
 #
-# Copyright 2023 Canonical Ltd.
+# Copyright 2024 Canonical Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 3 as
@@ -38,7 +38,7 @@ class _GunicornBase(Extension):
     @override
     def get_supported_bases() -> Tuple[str, ...]:
         """Return supported bases."""
-        return "bare", "ubuntu@20.04", "ubuntu@22.04", "ubuntu:20.04", "ubuntu:22.04"
+        return "bare", "ubuntu@22.04", "ubuntu:22.04"
 
     @staticmethod
     @override
